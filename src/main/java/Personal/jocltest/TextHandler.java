@@ -5,6 +5,7 @@ public class TextHandler {
 	private int sheetIndex;
 	private int letterWidth, letterHeight;
 	private String alphabet;
+	private String path;
 	private GraphicsCardInterface gfx;
 	
 	public TextHandler(GraphicsCardInterface gfx, int letterWidth, int letterHeight, String alphabet, String path) {
@@ -13,6 +14,7 @@ public class TextHandler {
 		this.letterHeight = letterHeight;
 		this.alphabet = alphabet;
 		sheetIndex = gfx.loadTexture(path);
+		this.path = path;
 	}
 	
 	public void renderText(int canvas, String text, int x, int y, float scale) {
@@ -56,6 +58,10 @@ public class TextHandler {
 					scale, 
 					false, false, 0, 0, 0, 0, 0, 0, 1f);
 		}
+	}
+	
+	public void release() {
+		gfx.unloadTexture(path);
 	}
 
 }
