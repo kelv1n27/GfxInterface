@@ -108,7 +108,7 @@ public class GraphicsCardInterface {
 	    //allocate 128 spaces in memory for sprites
 	    memObjects = new cl_mem[128];
 	        
-	    memHandler = new MemoryManager(memObjects, context);
+	    memHandler = new MemoryManager(memObjects, context, this);
 
 //	            + "int texturex = textureCoords.x + (flip.x==0?(int)((get_global_id(0)%textureSize.x)/textureScale.x):(int)((textureSize.x - (get_global_id(0)%textureSize.x) - 0)/textureScale.x));\n"
 //				+ "int texturey = textureCoords.y + (flip.y==0?(int)((get_global_id(1)%textureSize.y)/textureScale.y):(int)((textureSize.y - (get_global_id(1)%textureSize.y) - 0)/textureScale.y));\n"
@@ -230,11 +230,16 @@ public class GraphicsCardInterface {
 			org.jocl.CL.clReleaseCommandQueue(commandQueue);
 			org.jocl.CL.clReleaseContext(context);
 			memHandler.releaseMem();
+			memHandler = null;
 		}
 		
 		public int[] getSheetDims(int sheetIndex) {
 			MemHelper temp = memHandler.getHelper(sheetIndex);
 			return new int[] {temp.getWidth(), temp.getHeight()};
+		}
+		
+		public void showDebug() {
+			memHandler.showDebug();
 		}
 
 		public void upscale(int sourceCanvas, int destCanvas) {
@@ -248,6 +253,8 @@ public class GraphicsCardInterface {
 
 	        int err = clEnqueueNDRangeKernel(commandQueue, upscaleKern, 2, null, global_work_size, local_work_size, 0, null, null);
 	        if (err != org.jocl.CL.CL_SUCCESS) System.out.println("GFX ERROR: Upscale failed: " + org.jocl.CL.stringFor_errorCode(err));
+	        
+	        memHandler.updateDebugImg(destCanvas);
 		}
 
 		//COMPLETELY GARBAGE AND DEPRECIATED
@@ -273,6 +280,7 @@ public class GraphicsCardInterface {
 
 	        int err = clEnqueueNDRangeKernel(commandQueue, fillKern, 2, null, global_work_size, local_work_size, 0, null, null);
 	        if (err != org.jocl.CL.CL_SUCCESS) System.out.println("GFX ERROR: Screen fill color failed: " + org.jocl.CL.stringFor_errorCode(err));
+	        memHandler.updateDebugImg(canvas);
 		}
 		
 		public void render(int canvas, int textureIndex, int x, int y, int xSpriteOffset, int ySpriteOffset, int spriteWidth, 
@@ -300,6 +308,7 @@ public class GraphicsCardInterface {
 
 				int err = clEnqueueNDRangeKernel(commandQueue, renderKern, 2, null, global_work_size, local_work_size, 0, null, null);
 				if (err != org.jocl.CL.CL_SUCCESS) System.out.println("GFX ERROR: Failed to render sprite: " + org.jocl.CL.stringFor_errorCode(err));
+				memHandler.updateDebugImg(canvas);
 			} else {
 				System.out.println("GFX ERROR: Tried to render invalid texture at index " + textureIndex);
 			}
@@ -324,6 +333,7 @@ public class GraphicsCardInterface {
 
 				int err = clEnqueueNDRangeKernel(commandQueue, lineKern, 1, null, global_work_size, local_work_size, 0, null, null);
 				if (err != org.jocl.CL.CL_SUCCESS) System.out.println("Failed to render line: " + org.jocl.CL.stringFor_errorCode(err));
+				memHandler.updateDebugImg(canvas);
 			} else {
 				System.out.println("GFX ERROR: Tried to render to invalid canvas at index " + canvas);
 			}
@@ -354,6 +364,7 @@ public class GraphicsCardInterface {
 
 				int err = clEnqueueNDRangeKernel(commandQueue, invertKern, 2, null, global_work_size, local_work_size, 0, null, null);
 				if (err != org.jocl.CL.CL_SUCCESS) System.out.println("GFX ERROR: Failed to invert sprite: " + org.jocl.CL.stringFor_errorCode(err));
+				memHandler.updateDebugImg(canvas);
 			} else {
 				System.out.println("GFX ERROR: Tried to invert using invalid texture at index " + textureIndex);
 			}

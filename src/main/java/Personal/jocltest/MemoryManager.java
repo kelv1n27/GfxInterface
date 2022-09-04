@@ -4,12 +4,23 @@ import static org.jocl.CL.CL_MEM_COPY_HOST_PTR;
 import static org.jocl.CL.CL_MEM_READ_ONLY;
 import static org.jocl.CL.clCreateBuffer;
 
+import java.awt.BorderLayout;
+import java.awt.Canvas;
+import java.awt.Dimension;
 import java.awt.image.BufferedImage;
-import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
 
 import javax.imageio.ImageIO;
+import javax.swing.DefaultListModel;
+import javax.swing.ImageIcon;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
 
 import org.jocl.Pointer;
 import org.jocl.Sizeof;
@@ -22,12 +33,65 @@ public class MemoryManager{
 	private cl_context context;
 	private HashMap <String, Integer> indexes = new HashMap<String, Integer>();
 	private MemHelper[] helpers;
-	int err[] = new int[1];
+	private int err[] = new int[1];
+	private final GraphicsCardInterface gfx;
 	
-	public MemoryManager(cl_mem[] memObjects, cl_context context) {
+	private JFrame frame = new JFrame("GFX Memory Viewer");
+	private DefaultListModel<MemHelper> model = new DefaultListModel<MemHelper>();
+	private JList<MemHelper> list = new JList<MemHelper>(model);
+	private JFrame imgFrame = new JFrame("GFX Memory Viewer");
+	private Canvas canvas = new Canvas();
+	private BufferedImage image;
+	
+	public MemoryManager(cl_mem[] memObjects, cl_context context, final GraphicsCardInterface gfx) {
 		this.memObjects = memObjects;
 		this.context = context;
 		helpers = new MemHelper[memObjects.length];
+		this.gfx = gfx;
+		
+		frame.setResizable(false);
+		frame.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
+		list.addListSelectionListener(new ListSelectionListener() {
+
+			@Override
+			public void valueChanged(ListSelectionEvent e) {
+				try {
+					int frameX = imgFrame.getX();
+					int frameY = imgFrame.getY();
+					image = new BufferedImage(list.getSelectedValue().getWidth(), list.getSelectedValue().getHeight(), BufferedImage.TYPE_INT_ARGB);
+					imgFrame.dispose();
+					imgFrame = new JFrame("GFX Memory Viewer");
+					imgFrame.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
+					gfx.readBuffer(list.getSelectedIndex(), image);
+					JLabel label = new JLabel();
+					label.setIcon(new ImageIcon(image));
+					imgFrame.add(label);
+					imgFrame.setLocation(frameX, frameY);
+					imgFrame.setVisible(true);
+					imgFrame.pack();
+				} catch (NullPointerException ex) {
+					System.out.println("GFX WARN: GFX memory debug viewer tried accessing invalid helper " + list.getSelectedIndex());
+				} catch (IllegalStateException ex ) {
+					System.out.println("GFX WARN: Error in GFX memory debug viewer trying to create window to display image stored in helper " + list.getSelectedIndex());
+				}
+			}
+			
+		});
+		JScrollPane scroll = new JScrollPane(list);
+		scroll.setVerticalScrollBar(scroll.createVerticalScrollBar());
+		scroll.setPreferredSize(new Dimension(300, 700));
+		JPanel panel = new JPanel();
+		panel.add(scroll, "East");
+		frame.add(panel);
+		frame.pack();
+		frame.setVisible(false);
+		
+		imgFrame.setVisible(true);
+		imgFrame.setVisible(false);
+		imgFrame.setLayout(new BorderLayout());
+		imgFrame.add(canvas, BorderLayout.CENTER);
+		//imgFrame.add(canvas);
+		canvas.createBufferStrategy(3);
 	}
 	
 	public int loadTexture(String path) {
@@ -49,8 +113,11 @@ public class MemoryManager{
 					System.out.println("GFX ERROR: Failed to allocate memory for texture '" + path + "': " + org.jocl.CL.stringFor_errorCode(err[0]));
 					return -1;
 				}
-				helpers[i] = new MemHelper(image.getWidth(), image.getHeight());
+				MemHelper helper = new MemHelper(image.getWidth(), image.getHeight(), path);
+				helpers[i] = helper;
 				indexes.put(path, i);
+				
+				model.addElement(helper);
 				
 				return i;
 			} catch (IOException e) {
@@ -72,6 +139,9 @@ public class MemoryManager{
 				return helpers[index].getStakes();
 			else {//if nothing else relies on texture
 				org.jocl.CL.clReleaseMemObject(memObjects[index]);
+				
+				model.removeElement(helpers[index]);
+				//removeDefaultListModelElementWorkaround(helpers[index]);
 				helpers[index] = null;
 				indexes.remove(path);
 				return 0;
@@ -97,7 +167,11 @@ public class MemoryManager{
 			System.out.println("GFX ERROR: Failed to allocate memory for new canvas " + org.jocl.CL.stringFor_errorCode(err[0]));
 			return -1;
 		}
-		helpers[i] = new MemHelper(w, h);
+		MemHelper helper = new MemHelper(w, h, "canvas");
+		helpers[i] = helper;
+		
+		model.addElement(helper);
+		
 		return i;
 	}
 	
@@ -107,6 +181,10 @@ public class MemoryManager{
 			return;
 		}
 		org.jocl.CL.clReleaseMemObject(memObjects[i]);
+		
+		MemHelper toRemove = helpers[i];
+		model.removeElement(toRemove);
+		
 		helpers[i] = null;
 	}
 	
@@ -124,6 +202,36 @@ public class MemoryManager{
 			org.jocl.CL.clReleaseMemObject(memObjects[indexes.get(s)]);
 		}
 		indexes.clear();
+		frame.dispose();
+		imgFrame.dispose();
+	}
+	
+	public void showDebug() {
+		frame.setVisible(true);
+	}
+	
+	public void updateDebugImg(int index) {
+		if (imgFrame.isVisible() && index == list.getSelectedIndex()) {
+			try {
+				int frameX = imgFrame.getX();
+				int frameY = imgFrame.getY();
+				image = new BufferedImage(list.getSelectedValue().getWidth(), list.getSelectedValue().getHeight(), BufferedImage.TYPE_INT_ARGB);
+				imgFrame.dispose();
+				imgFrame = new JFrame("GFX Memory Viewer");
+				imgFrame.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
+				gfx.readBuffer(list.getSelectedIndex(), image);
+				JLabel label = new JLabel();
+				label.setIcon(new ImageIcon(image));
+				imgFrame.add(label);
+				imgFrame.setLocation(frameX, frameY);
+				imgFrame.setVisible(true);
+				imgFrame.pack();
+			} catch (NullPointerException ex) {
+				System.out.println("GFX WARN: GFX memory debug viewer tried accessing invalid helper " + list.getSelectedIndex());
+			} catch (IllegalStateException ex ) {
+				System.out.println("GFX WARN: Error in GFX memory debug viewer trying to create window to display image stored in helper " + list.getSelectedIndex());
+			}
+		}
 	}
 	
 }
@@ -132,10 +240,12 @@ class MemHelper {
 	private int width;
 	private int height;
 	private int stakes;
+	private String designation;
 	
-	public MemHelper(int w, int h) {
+	public MemHelper(int w, int h, String designation) {
 		this.width = w;
 		this.height = h;
+		this.designation = designation;
 		stakes = 1;
 	}
 	
@@ -159,5 +269,11 @@ class MemHelper {
 	
 	public int getHeight() {
 		return height;
+	}
+	
+	@Override
+	public String toString() {
+		return "[" + stakes + "x][" + width + " x " + height + "] " + designation;
+		//return "hi";
 	}
 }
