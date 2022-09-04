@@ -56,17 +56,12 @@ public class MemoryManager{
 			@Override
 			public void valueChanged(ListSelectionEvent e) {
 				try {
-					int frameX = imgFrame.getX();
-					int frameY = imgFrame.getY();
 					image = new BufferedImage(list.getSelectedValue().getWidth(), list.getSelectedValue().getHeight(), BufferedImage.TYPE_INT_ARGB);
-					imgFrame.dispose();
-					imgFrame = new JFrame("GFX Memory Viewer");
-					imgFrame.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
 					gfx.readBuffer(list.getSelectedIndex(), image);
 					JLabel label = new JLabel();
 					label.setIcon(new ImageIcon(image));
+					imgFrame.getContentPane().removeAll();
 					imgFrame.add(label);
-					imgFrame.setLocation(frameX, frameY);
 					imgFrame.setVisible(true);
 					imgFrame.pack();
 				} catch (NullPointerException ex) {
@@ -213,17 +208,12 @@ public class MemoryManager{
 	public void updateDebugImg(int index) {
 		if (imgFrame.isVisible() && index == list.getSelectedIndex()) {
 			try {
-				int frameX = imgFrame.getX();
-				int frameY = imgFrame.getY();
 				image = new BufferedImage(list.getSelectedValue().getWidth(), list.getSelectedValue().getHeight(), BufferedImage.TYPE_INT_ARGB);
-				imgFrame.dispose();
-				imgFrame = new JFrame("GFX Memory Viewer");
-				imgFrame.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
 				gfx.readBuffer(list.getSelectedIndex(), image);
 				JLabel label = new JLabel();
 				label.setIcon(new ImageIcon(image));
+				imgFrame.getContentPane().removeAll();
 				imgFrame.add(label);
-				imgFrame.setLocation(frameX, frameY);
 				imgFrame.setVisible(true);
 				imgFrame.pack();
 			} catch (NullPointerException ex) {
