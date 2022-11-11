@@ -1,4 +1,4 @@
-package Personal.jocltest;
+package tbh.gfxInterface;
 
 public class TextHandler {
 	
@@ -13,19 +13,21 @@ public class TextHandler {
 		this.letterWidth = letterWidth;
 		this.letterHeight = letterHeight;
 		this.alphabet = alphabet;
-		sheetIndex = gfx.loadTexture(path);
+		//sheetIndex = gfx.loadTexture(path);
 		this.path = path;
 	}
 	
 	public void renderText(int canvas, String text, int x, int y, float scale) {
 		text = text.toLowerCase();
-		int[] dims = gfx.getSheetDims(sheetIndex);
+		//int[] dims = new int[] {gfx.getResourceWidth(sheetIndex), gfx.getResourceHeight(sheetIndex)};
+		int[] dims = new int[] {0, 0};
 		for(int i = 0; i < text.length(); i++) {
 			int index = 0;
 			while (index < alphabet.length() && text.charAt(i) != alphabet.charAt(index)) {
 				index++;
 			}
-			gfx.render(canvas, 
+			gfx.runPlugin("AdvRender",
+					new Object[] {canvas, 
 					sheetIndex, x + (int)(i * letterWidth * scale), 
 					y, 
 					(index * letterWidth)%dims[0], 
@@ -34,19 +36,21 @@ public class TextHandler {
 					letterHeight, 
 					scale, 
 					scale, 
-					false, false, 0, 0, 0, 0, 0, 0, 1f);
+					false, false, 0, 0, 0, 0, 0, 0, 1f});
 		}
 	}
 	
 	public void renderOffsetText(int canvas, String text, int x, int y, float scale, float xWaveOffset, float yWaveOffset, int xWaveAmp, int yWaveAmp, float xWavePeriod, float yWavePeriod) {
 		text = text.toLowerCase();
-		int[] dims = gfx.getSheetDims(sheetIndex);
+		//int[] dims = new int[] {gfx.getResourceWidth(sheetIndex), gfx.getResourceHeight(sheetIndex)};
+		int[] dims = new int[] {0, 0};
 		for(int i = 0; i < text.length(); i++) {
 			int index = 0;
 			while (index < alphabet.length() && text.charAt(i) != alphabet.charAt(index)) {
 				index++;
 			}
-			gfx.render(canvas, 
+			gfx.runPlugin("AdvRender", 
+					new Object[] {canvas, 
 					sheetIndex, 
 					x + (int)((i * letterWidth * scale) + (xWaveAmp * Math.sin(xWavePeriod * ((i+1) + xWaveOffset)))), 
 					y + (int) (yWaveAmp * Math.sin(yWavePeriod * ((i + 1) + yWaveOffset))), 
@@ -56,12 +60,12 @@ public class TextHandler {
 					letterHeight, 
 					scale, 
 					scale, 
-					false, false, 0, 0, 0, 0, 0, 0, 1f);
+					false, false, 0, 0, 0, 0, 0, 0, 1f});
 		}
 	}
 	
 	public void release() {
-		gfx.unloadTexture(path);
+		//gfx.unloadTexture(path);
 	}
 
 }
