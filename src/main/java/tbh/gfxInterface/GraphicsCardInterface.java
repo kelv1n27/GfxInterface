@@ -13,6 +13,8 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Array;
+import java.lang.reflect.Constructor;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -59,7 +61,8 @@ public class GraphicsCardInterface {
     private MemoryManager memHandler;
     
     private String pluginLocation = "/";
-    private HashMap<String, KernelPlugin> programs = new HashMap<String, KernelPlugin>();
+    private HashMap<String, RunnablePlugin> runnablePlugins = new HashMap<String, RunnablePlugin>();
+    private HashMap<String, Class> memoryPlugins = new HashMap<String, Class>();
     
     private short Gfx_Log_Level = 1;
     public final short GFX_LOG_LEVEL_LOG = 0;
@@ -120,6 +123,7 @@ public class GraphicsCardInterface {
 	
 	public void loadPlugins(String pluginDir) {
 		MemoryPlugin.load(this);
+		RunnablePlugin.load(this);
 		try {
 	    	//get all the .jar files
 			File pluginFolder = new File(getClass().getResource(pluginLocation).toURI());
@@ -150,8 +154,11 @@ public class GraphicsCardInterface {
 						try {
 							String modString = c.replaceAll("/", ".").replace(".class", "");
 							Class newClass = pluginLoader.loadClass(modString);
-							if (newClass.getSuperclass() == KernelPlugin.class) {
-								//kernel plugin, load kernel and all that
+							//find relevant parent class
+							Class parent = newClass.getSuperclass();
+							while(parent != KernelPlugin.class && parent != MemoryPlugin.class && parent != RunnablePlugin.class && parent != Object.class)
+								parent = parent.getSuperclass();
+							if (parent == KernelPlugin.class) {//index kernel plugins
 								String progName = modString.split("\\.")[modString.split("\\.").length-1];
 								String match = null;
 								for (String k : kernels) {
@@ -181,20 +188,20 @@ public class GraphicsCardInterface {
 									if (err[0] != org.jocl.CL.CL_SUCCESS) throw new Exception("Kernel err = " + org.jocl.CL.stringFor_errorCode(err[0]));
 									//kernel creation was successful, load class
 									KernelPlugin newProg = (KernelPlugin) newClass.newInstance();
-									newProg.load(this, newKernel);
+									newProg.kernelLoad(newKernel);
 									//index the class into the programs hashmap
 									boolean added = false;
 									String key = match.replaceAll(".kernel", "");
 									int pass = 0;
 									while(!added || pass > 100) {
 										boolean collision = false;
-										for (String s : programs.keySet()) {
+										for (String s : runnablePlugins.keySet()) {
 											if ((key + (pass == 0 ? "" : pass)).equals(s)){
 												GfxLog(1, "Collision indexing class \"" + key + (pass++ == 0 ? "" : pass) + "\", trying again with key \"" + key + pass + "\"");
 											}
 										}
 										if (!collision) {
-											programs.put(key, newProg);
+											runnablePlugins.put(key, newProg);
 											added = true;
 										}
 										if (pass > 100 && !added) GfxLog(1, "Failed to index class \"" + key + "\" in 100 attempts, aborting load");
@@ -205,10 +212,50 @@ public class GraphicsCardInterface {
 									e.printStackTrace();
 									break;
 								}
-							} else if (newClass.getSuperclass() == MemoryPlugin.class){
-								GfxLog(0, "Memory plugin \"" + modString + "\" loaded");
+							} else if (parent == MemoryPlugin.class){//index memory plugins
+								boolean added = false;
+								String key = modString.replaceAll("[a-zA-Z0-9\\-_]*\\.", "");
+								int pass = 0;
+								while(!added || pass > 100) {
+									boolean collision = false;
+									for (String s : memoryPlugins.keySet()) {
+										if ((key + (pass == 0 ? "" : pass)).equals(s)){
+											GfxLog(1, "Collision indexing class \"" + key + (pass++ == 0 ? "" : pass) + "\", trying again with key \"" + key + pass + "\"");
+										}
+									}
+									if (!collision) {
+										memoryPlugins.put(key, newClass);
+										added = true;
+									}
+									if (pass > 100 && !added) GfxLog(1, "Failed to index class \"" + key + "\" in 100 attempts, aborting load");
+								}
+								GfxLog(0, "Memory plugin \"" + key + "\" loaded");
+							} else if (parent == RunnablePlugin.class){//runnable plugin without a kernel
+								boolean added = false;
+								String key = modString.replaceAll("[a-zA-Z0-9\\-_]*\\.", "");
+								int pass = 0;
+								while(!added || pass > 100) {
+									boolean collision = false;
+									for (String s : runnablePlugins.keySet()) {
+										if ((key + (pass == 0 ? "" : pass)).equals(s)){
+											GfxLog(1, "Collision indexing class \"" + key + (pass++ == 0 ? "" : pass) + "\", trying again with key \"" + key + pass + "\"");
+										}
+									}
+									if (!collision) {
+										try {
+											runnablePlugins.put(key, (RunnablePlugin) newClass.newInstance());
+										} catch (InstantiationException e) {
+											GfxLog(2, "Could not instantiate runnable plugin \"" + key + "\", load failed");
+											e.printStackTrace();
+										} catch (IllegalAccessException e) {
+											GfxLog(2, "Could not instantiate runnable plugin \"" + key + "\", load failed");
+											e.printStackTrace();
+										}
+										added = true;
+									}
+									if (pass > 100 && !added) GfxLog(1, "Failed to index class \"" + key + "\" in 100 attempts, aborting load");
+								}
 							}
-							
 						} catch (ClassNotFoundException | NoClassDefFoundError e) {
 							GfxLog(2, "Failure loading class \"" + c + "\"");
 							e.printStackTrace();
@@ -218,7 +265,6 @@ public class GraphicsCardInterface {
 					GfxLog(2, "Could not read \"" + f + "\"");
 					e.printStackTrace();
 				}
-				
 			}
 		} catch (URISyntaxException e) {
 			GfxLog(2, "URI syntax error loading graphics plugins at \"" + pluginLocation + "\"");
@@ -239,9 +285,9 @@ public class GraphicsCardInterface {
 	
 	public void runPlugin(String pluginKey, Object[] args) {
 		GfxLog(0, "Running plugin \"" + pluginKey + "\"");
-		if (programs.get(pluginKey) != null)
+		if (runnablePlugins.get(pluginKey) != null)
 			try {
-				programs.get(pluginKey).run(args);
+				runnablePlugins.get(pluginKey).run(args);
 			} catch (Exception e) {
 				GfxLog(2, "Uncaught exception in plugin \"" + pluginKey + "\"");
 				e.printStackTrace();
@@ -253,21 +299,18 @@ public class GraphicsCardInterface {
 	public void Release() {
 		org.jocl.CL.clReleaseKernel(invertKern);
 		
-		for(KernelPlugin p : programs.values())
-			p.release();
-		programs.clear();
+		for(RunnablePlugin p : runnablePlugins.values())
+			if (p instanceof KernelPlugin)
+				((KernelPlugin) p).release();
+		runnablePlugins.clear();
 			
 		org.jocl.CL.clReleaseProgram(gfxProg);
 		org.jocl.CL.clReleaseCommandQueue(commandQueue);
 		org.jocl.CL.clReleaseContext(context);
-		memHandler.releaseMem();
-		memHandler = null;
+		memHandler.releaseMem();///////////////////////////////////////
+		memHandler = null;/////////////////////////////////////////////
 	}
 		
-	public void showDebug() {
-		memHandler.showDebug();
-	}
-	
 	public void GfxLog(int logLevel, String msg) {
 		if (logLevel >= Gfx_Log_Level)
 			switch (logLevel) {
@@ -299,6 +342,48 @@ public class GraphicsCardInterface {
 		return memObjects;
 	}
 	
+	public String[] getKernelPluginList() {
+		return runnablePlugins.keySet().toArray(new String[] {});
+	}
+	
+	public String[] getMemoryPluginList() {
+		return memoryPlugins.keySet().toArray(new String[] {});
+	}
+	
+	public MemoryPlugin buildMemoryObject(String pluginKey, Object[] args) {
+		try {
+			Class[] classes = new Class[args.length];
+			for (int i = 0; i < args.length; i++) {
+				classes[i] = args[i].getClass();
+			}
+			Constructor<MemoryPlugin> constructor = memoryPlugins.get(pluginKey).getConstructor(classes);
+			return (MemoryPlugin) constructor.newInstance(args);
+		} catch (NullPointerException e) {
+			GfxLog(2, "Memory plugin of type \"" + pluginKey + "\" does not exist");
+			e.printStackTrace();
+			return null;
+		} catch (NoSuchMethodException e) {
+			Constructor<MemoryPlugin>[] constructors = memoryPlugins.get(pluginKey).getConstructors();
+			String constructorString = "";
+			for (int i = 0; i < constructors.length; i++)
+				constructorString += constructors[i] + "\n";
+			constructorString = constructorString.substring(0, constructorString.length()-1);//gets rid of unneeded \n
+			GfxLog(2, "Invalid arguments for type \"" + pluginKey + "\", valid constructors are: \n" + constructorString);
+			e.printStackTrace();
+			return null;
+		} catch (Exception e) {
+			GfxLog(2, "Unknown error building memory plugin of type " + pluginKey);
+			e.printStackTrace();
+			return null;
+		}
+	}
+	
+	
+	
+	public void showDebug() {
+		memHandler.showDebug();
+	}
+		
 	public int loadMemory(MemoryPlugin p) {
 		return memHandler.loadMemory(p);
 	}
@@ -319,46 +404,4 @@ public class GraphicsCardInterface {
 		memHandler.updateMemoryPlugin(index);
 	}
 	
-	
-		
-//	public int loadTexture(String path) {
-//		return memHandler.loadTexture(path);
-//	}
-//		
-//	public int unloadTexture(String path) {
-//		return memHandler.unloadTexture(path);
-//	}
-//	public int createCanvas(int w, int h) {
-//		return memHandler.createCanvas(w, h);
-//	}
-//		
-//	public void releaseCanvas(int i) {
-//		memHandler.releaseCanvas(i);
-//	}
-//	
-//	public boolean resourceExists(int index) {
-//		return memHandler.getHelper(index) != null;
-//	}
-//	
-//	
-//	
-//	public int getResourceWidth(int index) {
-//		return memHandler.getHelper(index).getWidth();
-//	}
-//	
-//	public int getResourceHeight(int index) {
-//		return memHandler.getHelper(index).getHeight();
-//	}
-//	
-//	
-//
-//	
-//		
-//	public void readBuffer(int src, BufferedImage dest) {
-//		DataBufferInt output_buffer = (DataBufferInt) dest.getRaster().getDataBuffer();
-//	    int output_data[] = output_buffer.getData();
-//	    int err = clEnqueueReadBuffer(commandQueue, memObjects[src], CL_TRUE, 0, Sizeof.cl_int * (memHandler.getHelper(src).getWidth()*memHandler.getHelper(src).getHeight()), Pointer.to(output_data), 0, null, null);
-//	    if (err != org.jocl.CL.CL_SUCCESS) GfxLog(2, "Readbuffer Failed: " + org.jocl.CL.stringFor_errorCode(err));
-//	}
-
 }

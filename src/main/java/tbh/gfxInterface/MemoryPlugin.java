@@ -39,7 +39,7 @@ public abstract class MemoryPlugin extends JFrame{
 	
 	@Override
 	public String toString() {
-		return "[" + stakes + "] [" + getClass().getCanonicalName() + "] " + designation;
+		return "[" + stakes + "] [" + getClass().getCanonicalName().replaceAll("[a-zA-Z0-9\\-_]*\\.", "") + "] " + designation;
 	}
 	
 	public abstract void updateDebug(int index);

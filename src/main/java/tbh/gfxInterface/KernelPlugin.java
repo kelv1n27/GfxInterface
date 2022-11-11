@@ -2,13 +2,12 @@ package tbh.gfxInterface;
 
 import org.jocl.cl_kernel;
 
-public abstract class KernelPlugin {
+public abstract class KernelPlugin extends RunnablePlugin{
 	
-	public GraphicsCardInterface gfx = null;
-	public cl_kernel kernel = null;
+	//protected GraphicsCardInterface gfx = null;
+	protected cl_kernel kernel = null;
 
-	public void load(GraphicsCardInterface gfx, cl_kernel kernel) {
-		this.gfx = gfx;
+	public void kernelLoad(cl_kernel kernel) {
 		this.kernel = kernel;
 	}
 	
