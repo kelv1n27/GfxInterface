@@ -1,6 +1,0 @@
-#compiled classes
-*.class
-#all compiled files
-target/
-#eclipse settings
-.settings/
