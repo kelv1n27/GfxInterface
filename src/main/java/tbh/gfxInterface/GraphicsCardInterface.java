@@ -7,6 +7,7 @@ import static org.jocl.CL.clCreateContext;
 import static org.jocl.CL.clGetDeviceIDs;
 import static org.jocl.CL.clGetPlatformIDs;
 
+import java.awt.Dimension;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -21,6 +22,14 @@ import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.jar.JarFile;
+
+import javax.swing.DefaultListModel;
+import javax.swing.JFrame;
+import javax.swing.JList;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
 
 import org.jocl.cl_command_queue;
 import org.jocl.cl_context;
@@ -58,7 +67,11 @@ public class GraphicsCardInterface {
     //allocated memory for gpu
     cl_mem memObjects[];
         
-    private MemoryManager memHandler;
+    private HashMap <String, Integer> indexes = new HashMap<String, Integer>();
+    private JFrame frame = new JFrame("GFX Memory Viewer");
+	private DefaultListModel<MemoryPlugin> pmodel = new DefaultListModel<MemoryPlugin>();
+	private JList<MemoryPlugin> plist = new JList<MemoryPlugin>(pmodel);
+	private MemoryPlugin[] memoryHelpers;
     
     private String pluginLocation = "/";
     private HashMap<String, RunnablePlugin> runnablePlugins = new HashMap<String, RunnablePlugin>();
@@ -75,16 +88,16 @@ public class GraphicsCardInterface {
 
 	public GraphicsCardInterface() {
 		initOpenCL();	
-	    memHandler = new MemoryManager(memObjects, context, this);
 	    loadPlugins(pluginLocation);
+	    initDebugWindow();
 	}
 	
 	public GraphicsCardInterface(short logLevel, String pluginDir) {
 		Gfx_Log_Level = logLevel;
 		initOpenCL();	        
-		memHandler = new MemoryManager(memObjects, context, this);
 		pluginLocation = pluginDir;
 		loadPlugins(pluginLocation);
+		initDebugWindow();
 	}
 	
 	private void initOpenCL() {
@@ -119,6 +132,7 @@ public class GraphicsCardInterface {
 
 		//allocate 128 spaces in memory for sprites
 		memObjects = new cl_mem[128];
+		memoryHelpers = new MemoryPlugin[memObjects.length];
 	}
 	
 	public void loadPlugins(String pluginDir) {
@@ -307,8 +321,14 @@ public class GraphicsCardInterface {
 		org.jocl.CL.clReleaseProgram(gfxProg);
 		org.jocl.CL.clReleaseCommandQueue(commandQueue);
 		org.jocl.CL.clReleaseContext(context);
-		memHandler.releaseMem();///////////////////////////////////////
-		memHandler = null;/////////////////////////////////////////////
+		for(String s : indexes.keySet()) {
+			org.jocl.CL.clReleaseMemObject(memObjects[indexes.get(s)]);
+		}
+		for(MemoryPlugin p : memoryHelpers)
+			if (p != null)
+				p.dispose();
+		indexes.clear();
+		frame.dispose();
 	}
 		
 	public void GfxLog(int logLevel, String msg) {
@@ -378,30 +398,120 @@ public class GraphicsCardInterface {
 		}
 	}
 	
+	public void initDebugWindow() {
+		frame.setResizable(false);
+		frame.setDefaultCloseOperation(JFrame.HIDE_ON_CLOSE);
+		
+		plist.addListSelectionListener(new ListSelectionListener() {
+			@Override
+			public void valueChanged(ListSelectionEvent e) {
+				try {
+					updateResource(plist.getSelectedIndex());
+					plist.getSelectedValue().setVisible(true);
+				} catch (NullPointerException ex) {
+					GfxLog(1, "GFX memory debug viewer tried accessing invalid memory plugin " + plist.getSelectedIndex());
+					ex.printStackTrace();
+				} catch (Exception ex) {
+					GfxLog(1, "Unknown error opening debug window for memory plugin " + plist.getSelectedIndex());
+					ex.printStackTrace();
+				}
+				
+			}
+		});
+		
+		JScrollPane scroll = new JScrollPane(plist);
+		scroll.setVerticalScrollBar(scroll.createVerticalScrollBar());
+		scroll.setPreferredSize(new Dimension(400, 700));
+		JPanel panel = new JPanel();
+		panel.add(scroll, "East");
+		frame.add(panel);
+		frame.pack();
+		frame.setVisible(false);
+	}
+	
 	
 	
 	public void showDebug() {
-		memHandler.showDebug();
+		frame.setVisible(true);
 	}
 		
 	public int loadMemory(MemoryPlugin p) {
-		return memHandler.loadMemory(p);
+		String designation = p.getDefaultDesignation();
+		int pass = 0;
+		while(indexes.containsKey(designation) && (p.forceCollision || !memoryHelpers[indexes.get(designation)].getClass().equals(p.getClass()) ) && pass < 128) {//stop collisions on same key by different plugins
+			pass++;
+			GfxLog(1, "Collision indexing memory plugin with key \"" + designation + "\", trying again");
+			if (pass > 1) {
+				designation = designation.substring(0, designation.length()-1) + pass;
+			} else {
+				designation += pass;
+			}
+		}
+		if (pass >= 128) {//all memory slots filled with colliding keys
+			GfxLog(2, "Failure indexing new " + p.getClass());
+			return -1;
+		} else if (!indexes.containsKey(designation)){//plugin not already indexed
+			int i = 0;
+			while(i < memoryHelpers.length && memoryHelpers[i] != null)//get first open slot
+				i++;
+			try {
+				p.addMemoryObject(i);
+				p.setDesignation(designation);
+				memoryHelpers[i] = p;
+				indexes.put(designation, i);
+				pmodel.addElement(p);
+				return i;
+			} catch (Exception e) {
+				GfxLog(2, "Uncaught Exception trying to load new " + p.getClass());
+				e.printStackTrace();
+				return -1;
+			}
+		} else {//plugin already loaded
+			memoryHelpers[indexes.get(designation)].stake();
+			return indexes.get(designation);
+		}
 	}
 	
 	public int releaseMemory(int index) {
-		return memHandler.releaseMemory(index);
+		try {
+			int stakes = memoryHelpers[index].destake();
+			if (stakes <= 0) {
+				memoryHelpers[index].removeMemoryObject(index);
+				pmodel.removeElement(memoryHelpers[index]);
+				memoryHelpers[index] = null;
+				for (String s : indexes.keySet()) {
+					indexes.remove(s, index);
+				}
+			}
+			return stakes;
+		} catch (IndexOutOfBoundsException e) {
+			GfxLog(2, "Tried to release memory at index out of bounds index" + index);
+			return -1;
+		} catch (NullPointerException e) {
+			GfxLog(2, "Tried to release nonexistant memory at index " + index);
+			return -1;
+		}
 	}
 	
 	public Object retrieveMemory(int index) {
-		return memHandler.retrieveMemory(index);
+		try {
+			return memoryHelpers[index].retrieveMemoryObject(index);
+		} catch (IndexOutOfBoundsException e) {
+			GfxLog(2, "Tried to retrieve memory at out of bounds index " + index);
+			return null;
+		} catch (NullPointerException e) {
+			GfxLog(2, "Tried to retrieve nonexistant memory at index " + index);
+			return null;
+		}
 	}
 	
 	public MemoryPlugin getMemoryPlugin(int index) {
-		return memHandler.getMemoryPlugin(index);
+		return memoryHelpers[index];
 	}
 	
 	public void updateResource(int index) {
-		memHandler.updateMemoryPlugin(index);
+		GfxLog(0, "Updating debug window of plugin " + index);
+		memoryHelpers[index].updateDebug(index);
 	}
 	
 }
