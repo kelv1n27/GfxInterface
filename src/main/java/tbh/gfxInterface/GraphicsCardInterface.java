@@ -136,11 +136,13 @@ public class GraphicsCardInterface {
 	}
 	
 	public void loadPlugins(String pluginDir) {
+		
 		MemoryPlugin.load(this);
 		RunnablePlugin.load(this);
 		try {
 	    	//get all the .jar files
 			File pluginFolder = new File(getClass().getResource(pluginLocation).toURI());
+			GfxLog(0, "Loading plugins in directory " + pluginFolder);
 			if (!pluginFolder.exists())
 				throw new FileNotFoundException();
 			File[] files=pluginFolder.listFiles((dir, name) -> name.endsWith(".jar"));
@@ -151,6 +153,7 @@ public class GraphicsCardInterface {
 			for(File f : files) {
 				try {
 					JarFile jarfile = new JarFile(f);
+					GfxLog(0, "Loading classes in jarfile " + f);
 					urls.add(new URL("jar:file:"+pluginFolder + "/" + f.getName() + "!/"));
 					jarfile.stream().forEach(jarEntry -> {
                         if(jarEntry.getName().endsWith(".class")){
@@ -279,6 +282,9 @@ public class GraphicsCardInterface {
 					GfxLog(2, "Could not read \"" + f + "\"");
 					e.printStackTrace();
 				}
+				classes.clear();
+				kernels.clear();
+				urls.clear();
 			}
 		} catch (URISyntaxException e) {
 			GfxLog(2, "URI syntax error loading graphics plugins at \"" + pluginLocation + "\"");
