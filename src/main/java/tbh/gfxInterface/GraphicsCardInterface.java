@@ -148,108 +148,82 @@ public class GraphicsCardInterface {
 			File[] files=pluginFolder.listFiles((dir, name) -> name.endsWith(".jar"));
 			//get all the classes and kernel programs in the .jar files
 			ArrayList<URL> urls = new ArrayList<URL>();
-			ArrayList<String> classes = new ArrayList<String>();
-			ArrayList<String> kernels = new ArrayList<String>();
+			ArrayList<JarFile> jars = new ArrayList<JarFile>();
+			HashMap<JarFile, ArrayList<String>> classes = new HashMap<JarFile, ArrayList<String>>();
+			HashMap<JarFile, ArrayList<String>> kernels = new HashMap<JarFile, ArrayList<String>>();
+			//ArrayList<String> classes = new ArrayList<String>();
+			//ArrayList<String> kernels = new ArrayList<String>();
+			//JarFile jarfile = null;
 			for(File f : files) {
 				try {
 					JarFile jarfile = new JarFile(f);
+					classes.put(jarfile, new ArrayList<String>());
+					kernels.put(jarfile, new ArrayList<String>());
+					jars.add(jarfile);
 					GfxLog(0, "Loading classes in jarfile " + f);
 					urls.add(new URL("jar:file:"+pluginFolder + "/" + f.getName() + "!/"));
 					jarfile.stream().forEach(jarEntry -> {
                         if(jarEntry.getName().endsWith(".class")){
                         	GfxLog(0, "found class \"" + jarEntry.getName() + "\"");
-                            classes.add(jarEntry.getName());
+                            classes.get(jarfile).add(jarEntry.getName());
                         }
                         if(jarEntry.getName().endsWith(".kernel")){
                         	GfxLog(0, "found kernel \"" + jarEntry.getName() + "\"");
-                            kernels.add(jarEntry.getName());
+                        	kernels.get(jarfile).add(jarEntry.getName());
                         }
                     });
-					//load the classes and programs
-					URLClassLoader pluginLoader = new URLClassLoader(urls.toArray(new URL[urls.size()]));
-					for (String c : classes) {
-						try {
-							String modString = c.replaceAll("/", ".").replace(".class", "");
-							Class newClass = pluginLoader.loadClass(modString);
-							//find relevant parent class
-							Class parent = newClass.getSuperclass();
-							while(parent != KernelPlugin.class && parent != MemoryPlugin.class && parent != RunnablePlugin.class && parent != Object.class)
-								parent = parent.getSuperclass();
-							if (parent == KernelPlugin.class) {//index kernel plugins
-								String progName = modString.split("\\.")[modString.split("\\.").length-1];
-								String match = null;
-								for (String k : kernels) {
-									if (k.replaceAll(".kernel", "").equals(progName))
-										match = k;
+				} catch (IOException e) {
+					GfxLog(2, "Could not read \"" + f + "\"");
+					e.printStackTrace();
+				}
+			}
+			//load the classes and programs
+			URLClassLoader pluginLoader = new URLClassLoader(urls.toArray(new URL[urls.size()]));
+			for(JarFile j : jars) {
+				
+				for (String c : classes.get(j)) {
+					try {
+						String modString = c.replaceAll("/", ".").replace(".class", "");
+						Class newClass = pluginLoader.loadClass(modString);
+						//find relevant parent class
+						Class parent = newClass.getSuperclass();
+						while(parent != KernelPlugin.class && parent != MemoryPlugin.class && parent != RunnablePlugin.class && parent != Object.class)
+							parent = parent.getSuperclass();
+						if (parent == KernelPlugin.class) {//index kernel plugins
+							String progName = modString.split("\\.")[modString.split("\\.").length-1];
+							String match = null;
+							for (String k : kernels.get(j)) {
+								if (k.replaceAll(".kernel", "").equals(progName))
+									match = k;
+							}
+							if (match == null) {
+								GfxLog(2, "Did not find matching kernel for \"" + modString + "\"");
+								break;
+							}
+							//kernel-class match found, read kernel and try to create program
+							try {
+								//System.out.println(jarfile == null);
+								InputStream in = j.getInputStream(j.getEntry(match));
+								BufferedReader br;
+								br = new BufferedReader(new InputStreamReader(in));
+								String line = "";
+								String code = "";
+								while ((line = br.readLine()) != null) {
+									code += line+"\n";
 								}
-								if (match == null) {
-									GfxLog(2, "Did not find matching kernel for \"" + modString + "\"");
-									break;
-								}
-								//kernel-class match found, read kernel and try to create program
-								try {
-									InputStream in = jarfile.getInputStream(jarfile.getEntry(match));
-									BufferedReader br;
-									br = new BufferedReader(new InputStreamReader(in));
-									String line = "";
-									String code = "";
-									while ((line = br.readLine()) != null) {
-										code += line+"\n";
-									}
-									code = code.substring(0, code.length()-1);
-									br.close();
-									gfxProg = org.jocl.CL.clCreateProgramWithSource(context, 1, new String[] {code}, null, null);
-									org.jocl.CL.clBuildProgram(gfxProg, 0, null, null, null, null);
-									int[] err = new int[1];
-									cl_kernel newKernel = org.jocl.CL.clCreateKernel(gfxProg, match.replaceAll(".kernel", ""), err);
-									if (err[0] != org.jocl.CL.CL_SUCCESS) throw new Exception("Kernel err = " + org.jocl.CL.stringFor_errorCode(err[0]));
-									//kernel creation was successful, load class
-									KernelPlugin newProg = (KernelPlugin) newClass.newInstance();
-									newProg.kernelLoad(newKernel);
-									//index the class into the programs hashmap
-									boolean added = false;
-									String key = match.replaceAll(".kernel", "");
-									int pass = 0;
-									while(!added || pass > 100) {
-										boolean collision = false;
-										for (String s : runnablePlugins.keySet()) {
-											if ((key + (pass == 0 ? "" : pass)).equals(s)){
-												GfxLog(1, "Collision indexing class \"" + key + (pass++ == 0 ? "" : pass) + "\", trying again with key \"" + key + pass + "\"");
-											}
-										}
-										if (!collision) {
-											runnablePlugins.put(key, newProg);
-											added = true;
-										}
-										if (pass > 100 && !added) GfxLog(1, "Failed to index class \"" + key + "\" in 100 attempts, aborting load");
-									}
-									GfxLog(0, "Kernel plugin \"" + match.replaceAll(".kernel", "") + "\" loaded");
-								} catch (Exception e) {
-									GfxLog(2, "Could not read kernel \"" + match + "\"");
-									e.printStackTrace();
-									break;
-								}
-							} else if (parent == MemoryPlugin.class){//index memory plugins
+								code = code.substring(0, code.length()-1);
+								br.close();
+								gfxProg = org.jocl.CL.clCreateProgramWithSource(context, 1, new String[] {code}, null, null);
+								org.jocl.CL.clBuildProgram(gfxProg, 0, null, null, null, null);
+								int[] err = new int[1];
+								cl_kernel newKernel = org.jocl.CL.clCreateKernel(gfxProg, match.replaceAll(".kernel", ""), err);
+								if (err[0] != org.jocl.CL.CL_SUCCESS) throw new Exception("Kernel err = " + org.jocl.CL.stringFor_errorCode(err[0]));
+								//kernel creation was successful, load class
+								KernelPlugin newProg = (KernelPlugin) newClass.newInstance();
+								newProg.kernelLoad(newKernel);
+								//index the class into the programs hashmap
 								boolean added = false;
-								String key = modString.replaceAll("[a-zA-Z0-9\\-_]*\\.", "");
-								int pass = 0;
-								while(!added || pass > 100) {
-									boolean collision = false;
-									for (String s : memoryPlugins.keySet()) {
-										if ((key + (pass == 0 ? "" : pass)).equals(s)){
-											GfxLog(1, "Collision indexing class \"" + key + (pass++ == 0 ? "" : pass) + "\", trying again with key \"" + key + pass + "\"");
-										}
-									}
-									if (!collision) {
-										memoryPlugins.put(key, newClass);
-										added = true;
-									}
-									if (pass > 100 && !added) GfxLog(1, "Failed to index class \"" + key + "\" in 100 attempts, aborting load");
-								}
-								GfxLog(0, "Memory plugin \"" + key + "\" loaded");
-							} else if (parent == RunnablePlugin.class){//runnable plugin without a kernel
-								boolean added = false;
-								String key = modString.replaceAll("[a-zA-Z0-9\\-_]*\\.", "");
+								String key = match.replaceAll(".kernel", "");
 								int pass = 0;
 								while(!added || pass > 100) {
 									boolean collision = false;
@@ -259,33 +233,73 @@ public class GraphicsCardInterface {
 										}
 									}
 									if (!collision) {
-										try {
-											runnablePlugins.put(key, (RunnablePlugin) newClass.newInstance());
-										} catch (InstantiationException e) {
-											GfxLog(2, "Could not instantiate runnable plugin \"" + key + "\", load failed");
-											e.printStackTrace();
-										} catch (IllegalAccessException e) {
-											GfxLog(2, "Could not instantiate runnable plugin \"" + key + "\", load failed");
-											e.printStackTrace();
-										}
+										runnablePlugins.put(key, newProg);
 										added = true;
 									}
 									if (pass > 100 && !added) GfxLog(1, "Failed to index class \"" + key + "\" in 100 attempts, aborting load");
 								}
+								GfxLog(0, "Kernel plugin \"" + match.replaceAll(".kernel", "") + "\" loaded");
+							} catch (Exception e) {
+								GfxLog(2, "Could not read kernel \"" + match + "\"");
+								e.printStackTrace();
+								break;
 							}
-						} catch (ClassNotFoundException | NoClassDefFoundError e) {
-							GfxLog(2, "Failure loading class \"" + c + "\"");
-							e.printStackTrace();
+						} else if (parent == MemoryPlugin.class){//index memory plugins
+							boolean added = false;
+							String key = modString.replaceAll("[a-zA-Z0-9\\-_]*\\.", "");
+							int pass = 0;
+							while(!added || pass > 100) {
+								boolean collision = false;
+								for (String s : memoryPlugins.keySet()) {
+									if ((key + (pass == 0 ? "" : pass)).equals(s)){
+										GfxLog(1, "Collision indexing class \"" + key + (pass++ == 0 ? "" : pass) + "\", trying again with key \"" + key + pass + "\"");
+									}
+								}
+								if (!collision) {
+									memoryPlugins.put(key, newClass);
+									added = true;
+								}
+								if (pass > 100 && !added) GfxLog(1, "Failed to index class \"" + key + "\" in 100 attempts, aborting load");
+							}
+							GfxLog(0, "Memory plugin \"" + key + "\" loaded");
+						} else if (parent == RunnablePlugin.class){//runnable plugin without a kernel
+							boolean added = false;
+							String key = modString.replaceAll("[a-zA-Z0-9\\-_]*\\.", "");
+							int pass = 0;
+							while(!added || pass > 100) {
+								boolean collision = false;
+								for (String s : runnablePlugins.keySet()) {
+									if ((key + (pass == 0 ? "" : pass)).equals(s)){
+										GfxLog(1, "Collision indexing class \"" + key + (pass++ == 0 ? "" : pass) + "\", trying again with key \"" + key + pass + "\"");
+									}
+								}
+								if (!collision) {
+									try {
+										runnablePlugins.put(key, (RunnablePlugin) newClass.newInstance());
+									} catch (InstantiationException e) {
+										GfxLog(2, "Could not instantiate runnable plugin \"" + key + "\", load failed");
+										e.printStackTrace();
+									} catch (IllegalAccessException e) {
+										GfxLog(2, "Could not instantiate runnable plugin \"" + key + "\", load failed");
+										e.printStackTrace();
+									}
+									added = true;
+								}
+								if (pass > 100 && !added) GfxLog(1, "Failed to index class \"" + key + "\" in 100 attempts, aborting load");
+							}
 						}
+					} catch (ClassNotFoundException | NoClassDefFoundError e) {
+						GfxLog(2, "Failure loading class \"" + c + "\"");
+						e.printStackTrace();
 					}
-				} catch (IOException e) {
-					GfxLog(2, "Could not read \"" + f + "\"");
-					e.printStackTrace();
 				}
-				classes.clear();
-				kernels.clear();
-				urls.clear();
 			}
+				
+			classes.clear();
+			kernels.clear();
+			jars.clear();
+			urls.clear();
+			
 		} catch (URISyntaxException e) {
 			GfxLog(2, "URI syntax error loading graphics plugins at \"" + pluginLocation + "\"");
 			e.printStackTrace();
