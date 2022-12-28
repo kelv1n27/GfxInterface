@@ -31,6 +31,7 @@ import javax.swing.JScrollPane;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 
+import org.jocl.Pointer;
 import org.jocl.cl_command_queue;
 import org.jocl.cl_context;
 import org.jocl.cl_context_properties;
@@ -217,7 +218,10 @@ public class GraphicsCardInterface {
 								org.jocl.CL.clBuildProgram(gfxProg, 0, null, null, null, null);
 								int[] err = new int[1];
 								cl_kernel newKernel = org.jocl.CL.clCreateKernel(gfxProg, match.replaceAll(".kernel", ""), err);
-								if (err[0] != org.jocl.CL.CL_SUCCESS) throw new Exception("Kernel err = " + org.jocl.CL.stringFor_errorCode(err[0]));
+								byte[] buildLog = new byte[2048];
+								Pointer logPtr = Pointer.to(buildLog);
+								int builderr = org.jocl.CL.clGetProgramBuildInfo(gfxProg, device, org.jocl.CL.CL_PROGRAM_BUILD_LOG, 2048, logPtr, null);
+								if (err[0] != org.jocl.CL.CL_SUCCESS) throw new Exception("Kernel err = " + org.jocl.CL.stringFor_errorCode(err[0]) + new String(buildLog));
 								//kernel creation was successful, load class
 								KernelPlugin newProg = (KernelPlugin) newClass.newInstance();
 								newProg.kernelLoad(newKernel);
