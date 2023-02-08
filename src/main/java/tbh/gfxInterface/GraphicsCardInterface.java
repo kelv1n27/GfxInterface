@@ -503,7 +503,7 @@ public class GraphicsCardInterface {
 				memoryHelpers[index].removeMemoryObject(index);
 				pmodel.removeElement(memoryHelpers[index]);
 				memoryHelpers[index] = null;
-				for (String s : indexes.keySet()) {
+				for (String s : indexes.keySet().toArray(new String[] {})) {
 					indexes.remove(s, index);
 				}
 			}
