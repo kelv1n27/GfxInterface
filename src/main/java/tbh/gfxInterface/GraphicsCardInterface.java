@@ -534,8 +534,10 @@ public class GraphicsCardInterface {
 	}
 	
 	public void updateResource(int index) {
-		GfxLog(0, "Updating debug window of plugin " + index);
-		memoryHelpers[index].updateDebug(index);
+		if (frame.isVisible()) {
+			GfxLog(0, "Updating debug window of plugin " + index);
+			memoryHelpers[index].updateDebug(index);
+		}
 	}
 	
 }
