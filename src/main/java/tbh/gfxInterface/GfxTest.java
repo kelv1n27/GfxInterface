@@ -5,7 +5,7 @@ public class GfxTest
 {
     public static void main( String[] args )
     { 
-        GraphicsCardInterface gfx = new GraphicsCardInterface((short)1, "/");
+        GraphicsCardInterface gfx = new GraphicsCardInterface();
         gfx.showDebug();
 
         int output = gfx.loadMemory(gfx.buildMemoryObject("IntArrayImage", new Object[] {300, 300}));

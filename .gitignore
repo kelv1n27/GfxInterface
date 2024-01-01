@@ -4,3 +4,5 @@
 target/
 #eclipse settings
 .settings/
+#test resources
+res/
